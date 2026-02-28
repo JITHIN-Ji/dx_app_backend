@@ -104,11 +104,12 @@ app.get('/orders/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
-  const { data: deposits,  error: depErr } = await supabase.from('deposits').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
-  const { data: exchanges, error: exErr  } = await supabase.from('exchanges').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
+  const { data: deposits,    error: depErr  } = await supabase.from('deposits').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
+  const { data: exchanges,   error: exErr   } = await supabase.from('exchanges').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
+  const { data: withdrawals, error: withErr } = await supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
 
-  if (depErr || exErr) return res.json({ success: false, message: 'Failed to fetch orders' });
-  res.json({ success: true, deposits, exchanges });
+  if (depErr || exErr || withErr) return res.json({ success: false, message: 'Failed to fetch orders' });
+  res.json({ success: true, deposits, exchanges, withdrawals });
 });
 
 // ─────────────────────────────────────────
@@ -255,6 +256,81 @@ app.post('/login', async (req, res) => {
 });
 
 // ─────────────────────────────────────────
+// POST /withdraw — Save withdrawal request
+// ─────────────────────────────────────────
+app.post('/withdraw', async (req, res) => {
+  const { user_id, amount, address } = req.body;
+  if (!user_id || !amount || !address) {
+    return res.json({ success: false, message: 'All fields are required' });
+  }
+
+  // Check available balance first
+  const { data: deposits } = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
+  const { data: exchanges } = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
+  const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).eq('status', 'pending');
+
+  const totalDeposited = (deposits  || []).reduce((sum, d) => sum + parseFloat(d.amount), 0);
+  const totalSpent     = (exchanges || []).reduce((sum, e) => sum + parseFloat(e.amount_from), 0);
+  const totalPending   = (withdrawals || []).reduce((sum, w) => sum + parseFloat(w.amount), 0);
+  const available      = totalDeposited - totalSpent - totalPending;
+
+  if (parseFloat(amount) > available) {
+    return res.json({ success: false, message: 'Insufficient balance' });
+  }
+  if (parseFloat(amount) < 200) {
+    return res.json({ success: false, message: 'Minimum withdrawal is 200 USDT' });
+  }
+
+  const { error } = await supabase.from('withdrawals').insert([{ user_id, amount, address, status: 'pending' }]);
+  if (error) return res.json({ success: false, message: error.message });
+
+  res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
+});
+
+// ─────────────────────────────────────────
+// GET /withdrawals/:user_id — Fetch user withdrawals
+// ─────────────────────────────────────────
+app.get('/withdrawals/:user_id', async (req, res) => {
+  const { user_id } = req.params;
+  const { data, error } = await supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
+  if (error) return res.json({ success: false, message: error.message });
+  res.json({ success: true, withdrawals: data });
+});
+
+// ─────────────────────────────────────────
+// POST /withdraw — Submit withdrawal request
+// ─────────────────────────────────────────
+app.post('/withdraw', async (req, res) => {
+  const { user_id, amount, address } = req.body;
+  if (!user_id || !amount || !address) {
+    return res.json({ success: false, message: 'All fields are required' });
+  }
+  if (parseFloat(amount) < 200) {
+    return res.json({ success: false, message: 'Minimum withdrawal is 200 USDT' });
+  }
+
+  // Check available balance
+  const { data: deposits }    = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
+  const { data: exchanges }   = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
+  const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed']);
+
+  const totalDeposited = (deposits    || []).reduce((s, d) => s + parseFloat(d.amount), 0);
+  const totalSpent     = (exchanges   || []).reduce((s, e) => s + parseFloat(e.amount_from), 0);
+  const totalWithdrawn = (withdrawals || []).reduce((s, w) => s + parseFloat(w.amount), 0);
+  const available      = totalDeposited - totalSpent - totalWithdrawn;
+
+  if (parseFloat(amount) > available) {
+    return res.json({ success: false, message: `Insufficient balance. Available: ${available.toFixed(2)} USDT` });
+  }
+
+  const { error } = await supabase.from('withdrawals').insert([{ user_id, amount, address, status: 'pending' }]);
+  if (error) return res.json({ success: false, message: error.message });
+
+  console.log(`✅ Withdrawal submitted: ${amount} USDT for user ${user_id}`);
+  res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
+});
+
+// ─────────────────────────────────────────
 // POST /verify-transaction
 // ─────────────────────────────────────────
 app.post('/verify-transaction', async (req, res) => {
@@ -304,6 +380,37 @@ app.post('/verify-transaction', async (req, res) => {
     console.error('❌ Verify transaction error:', err.message);
     return res.json({ success: false, message: 'Failed to reach TronScan. Try again later.' });
   }
+});
+
+// ─────────────────────────────────────────
+// GET /market-data — Live USDT/INR rate
+// ─────────────────────────────────────────
+app.get('/market-data', async (req, res) => {
+  try {
+    const response = await fetch(
+      'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=inr'
+    );
+    const data = await response.json();
+    const rate = data?.tether?.inr || 84.5;
+    res.json({ success: true, usdt_inr_rate: rate });
+  } catch (err) {
+    res.json({ success: true, usdt_inr_rate: 84.5 }); // fallback if API fails
+  }
+});
+
+// ─────────────────────────────────────────
+// GET /user/:user_id — Fetch user info
+// ─────────────────────────────────────────
+app.get('/user/:user_id', async (req, res) => {
+  const { user_id } = req.params;
+  if (!user_id) return res.json({ success: false, message: 'User ID required' });
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, name, phone')
+    .eq('id', user_id)
+    .single();
+  if (error || !data) return res.json({ success: false, message: 'User not found' });
+  res.json({ success: true, user: data });
 });
 
 // ─────────────────────────────────────────
