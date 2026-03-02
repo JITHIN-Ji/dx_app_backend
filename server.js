@@ -11,16 +11,12 @@ app.use(express.json());
 const DEPOSIT_WALLET = process.env.DEPOSIT_WALLET;
 const USDT_CONTRACT  = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 
-// ─────────────────────────────────────────
-// GET / — Health check
-// ─────────────────────────────────────────
+
 app.get('/', (req, res) => {
   res.json({ success: true, message: '✅ DX_APP Server is running!' });
 });
 
-// ─────────────────────────────────────────
-// GET /config — Returns public app config (deposit wallet)
-// ─────────────────────────────────────────
+
 app.get('/config', (req, res) => {
   if (!DEPOSIT_WALLET) {
     return res.json({ success: false, message: 'Deposit wallet not configured.' });
@@ -31,21 +27,19 @@ app.get('/config', (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────
-// GET /balances/:user_id — Fetch USDT and INR balance
-// ─────────────────────────────────────────
+
 app.get('/balances/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
-  // Sum confirmed deposits → USDT in
+
   const { data: deposits, error: depErr } = await supabase
     .from('deposits')
     .select('amount')
     .eq('user_id', user_id)
     .eq('status', 'confirmed');
 
-  // Sum completed exchanges → USDT out, INR in
+  
   const { data: exchanges, error: exErr } = await supabase
     .from('exchanges')
     .select('amount_from, amount_to, from_currency, to_currency')
@@ -67,9 +61,7 @@ app.get('/balances/:user_id', async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────
-// POST /deposit — Save deposit transaction
-// ─────────────────────────────────────────
+
 app.post('/deposit', async (req, res) => {
   const { user_id, tx_hash, amount, status, from_address, to_address } = req.body;
   if (!user_id || !tx_hash || !amount || !status) {
@@ -82,9 +74,7 @@ app.post('/deposit', async (req, res) => {
   res.json({ success: true, message: 'Deposit saved.' });
 });
 
-// ─────────────────────────────────────────
-// POST /exchange — Save exchange transaction
-// ─────────────────────────────────────────
+
 app.post('/exchange', async (req, res) => {
   const { user_id, from_currency, to_currency, amount_from, amount_to, rate, status } = req.body;
   if (!user_id || !from_currency || !to_currency || !amount_from || !amount_to || !status) {
@@ -97,9 +87,7 @@ app.post('/exchange', async (req, res) => {
   res.json({ success: true, message: 'Exchange saved.' });
 });
 
-// ─────────────────────────────────────────
-// GET /orders/:user_id — Fetch all user orders
-// ─────────────────────────────────────────
+
 app.get('/orders/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
@@ -112,9 +100,7 @@ app.get('/orders/:user_id', async (req, res) => {
   res.json({ success: true, deposits, exchanges, withdrawals });
 });
 
-// ─────────────────────────────────────────
-// POST /bank-card — Save or update bank card info
-// ─────────────────────────────────────────
+
 app.post('/bank-card', async (req, res) => {
   const { user_id, card_number, card_holder, bank_name, ifsc_code } = req.body;
   if (!user_id || !card_number || !card_holder || !bank_name) {
@@ -134,9 +120,7 @@ app.post('/bank-card', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────
-// GET /bank-card/:user_id — Fetch bank card info
-// ─────────────────────────────────────────
+
 app.get('/bank-card/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
@@ -151,9 +135,7 @@ app.get('/bank-card/:user_id', async (req, res) => {
   res.json({ success: true, data });
 });
 
-// ─────────────────────────────────────────
-// POST /send-otp
-// ─────────────────────────────────────────
+
 app.post('/send-otp', async (req, res) => {
   const { phone } = req.body;
   console.log('📱 Send OTP request for:', phone);
@@ -174,9 +156,7 @@ app.post('/send-otp', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────
-// POST /verify-and-register
-// ─────────────────────────────────────────
+
 app.post('/verify-and-register', async (req, res) => {
   const { name, phone, password, referralCode, code } = req.body;
   console.log('📋 Register request for:', phone);
@@ -215,9 +195,7 @@ app.post('/verify-and-register', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────
-// POST /login
-// ─────────────────────────────────────────
+
 app.post('/login', async (req, res) => {
   const { phone, password } = req.body;
   console.log('🔐 Login request for:', phone);
@@ -255,16 +233,14 @@ app.post('/login', async (req, res) => {
   });
 });
 
-// ─────────────────────────────────────────
-// POST /withdraw — Save withdrawal request
-// ─────────────────────────────────────────
+
 app.post('/withdraw', async (req, res) => {
   const { user_id, amount, address } = req.body;
   if (!user_id || !amount || !address) {
     return res.json({ success: false, message: 'All fields are required' });
   }
 
-  // Check available balance first
+ 
   const { data: deposits } = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
   const { data: exchanges } = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
   const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).eq('status', 'pending');
@@ -287,9 +263,7 @@ app.post('/withdraw', async (req, res) => {
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
 });
 
-// ─────────────────────────────────────────
-// GET /withdrawals/:user_id — Fetch user withdrawals
-// ─────────────────────────────────────────
+
 app.get('/withdrawals/:user_id', async (req, res) => {
   const { user_id } = req.params;
   const { data, error } = await supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
@@ -297,9 +271,7 @@ app.get('/withdrawals/:user_id', async (req, res) => {
   res.json({ success: true, withdrawals: data });
 });
 
-// ─────────────────────────────────────────
-// POST /withdraw — Submit withdrawal request
-// ─────────────────────────────────────────
+
 app.post('/withdraw', async (req, res) => {
   const { user_id, amount, address } = req.body;
   if (!user_id || !amount || !address) {
@@ -330,9 +302,7 @@ app.post('/withdraw', async (req, res) => {
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
 });
 
-// ─────────────────────────────────────────
-// POST /verify-transaction
-// ─────────────────────────────────────────
+
 app.post('/verify-transaction', async (req, res) => {
   const { txHash } = req.body;
   console.log('🔍 Verify transaction request:', txHash);
@@ -382,9 +352,7 @@ app.post('/verify-transaction', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────
-// GET /market-data — Live USDT/INR rate
-// ─────────────────────────────────────────
+
 app.get('/market-data', async (req, res) => {
   try {
     const response = await fetch(
@@ -394,13 +362,10 @@ app.get('/market-data', async (req, res) => {
     const rate = data?.tether?.inr || 84.5;
     res.json({ success: true, usdt_inr_rate: rate });
   } catch (err) {
-    res.json({ success: true, usdt_inr_rate: 84.5 }); // fallback if API fails
+    res.json({ success: true, usdt_inr_rate: 84.5 }); 
   }
 });
 
-// ─────────────────────────────────────────
-// GET /user/:user_id — Fetch user info
-// ─────────────────────────────────────────
 app.get('/user/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
@@ -413,7 +378,7 @@ app.get('/user/:user_id', async (req, res) => {
   res.json({ success: true, user: data });
 });
 
-// ─────────────────────────────────────────
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Server running on port ${PORT}`);

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 
 
 const ALGORITHM = 'aes-256-cbc';
-// Ensure the key is a 32-byte Buffer from hex string
+
 const KEY = process.env.ENCRYPTION_KEY ? Buffer.from(process.env.ENCRYPTION_KEY, 'hex') : crypto.randomBytes(32);
 const IV_LENGTH = 16;
 

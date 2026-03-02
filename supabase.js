@@ -1,4 +1,4 @@
-// Supabase client setup for Node.js backend
+
 const { createClient } = require('@supabase/supabase-js');
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
