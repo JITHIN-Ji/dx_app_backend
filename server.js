@@ -1,4 +1,5 @@
-require('dotenv').config();
+const path   = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const twilio = require('twilio');
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 const express = require('express');
@@ -10,6 +11,14 @@ app.use(express.json());
 
 const DEPOSIT_WALLET = process.env.DEPOSIT_WALLET;
 const USDT_CONTRACT  = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+
+// ── Strictly load USDT→INR rate from .env — no fallback ──────
+const USDT_INR_RATE = parseFloat(process.env.USDT_INR_RATE);
+if (!USDT_INR_RATE || !Number.isFinite(USDT_INR_RATE)) {
+  console.error('❌ USDT_INR_RATE is not set or invalid in .env. Server cannot start.');
+  process.exit(1);
+}
+console.log(`✅ USDT→INR rate loaded from .env: ${USDT_INR_RATE}`);
 
 
 app.get('/', (req, res) => {
@@ -32,14 +41,12 @@ app.get('/balances/:user_id', async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
-
   const { data: deposits, error: depErr } = await supabase
     .from('deposits')
     .select('amount')
     .eq('user_id', user_id)
     .eq('status', 'confirmed');
 
-  
   const { data: exchanges, error: exErr } = await supabase
     .from('exchanges')
     .select('amount_from, amount_to, from_currency, to_currency')
@@ -76,13 +83,13 @@ app.post('/deposit', async (req, res) => {
 
 
 app.post('/exchange', async (req, res) => {
-  const { user_id, from_currency, to_currency, amount_from, amount_to, rate, status } = req.body;
+  const { user_id, from_currency, to_currency, amount_from, fee, amount_after_fee, amount_to, rate, status } = req.body;
   if (!user_id || !from_currency || !to_currency || !amount_from || !amount_to || !status) {
     return res.json({ success: false, message: 'All fields are required' });
   }
   const { error } = await supabase
     .from('exchanges')
-    .insert([{ user_id, from_currency, to_currency, amount_from, amount_to, rate, status }]);
+    .insert([{ user_id, from_currency, to_currency, amount_from, fee, amount_after_fee, amount_to, rate, status }]);
   if (error) return res.json({ success: false, message: error.message });
   res.json({ success: true, message: 'Exchange saved.' });
 });
@@ -239,49 +246,10 @@ app.post('/withdraw', async (req, res) => {
   if (!user_id || !amount || !address) {
     return res.json({ success: false, message: 'All fields are required' });
   }
-
- 
-  const { data: deposits } = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
-  const { data: exchanges } = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
-  const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).eq('status', 'pending');
-
-  const totalDeposited = (deposits  || []).reduce((sum, d) => sum + parseFloat(d.amount), 0);
-  const totalSpent     = (exchanges || []).reduce((sum, e) => sum + parseFloat(e.amount_from), 0);
-  const totalPending   = (withdrawals || []).reduce((sum, w) => sum + parseFloat(w.amount), 0);
-  const available      = totalDeposited - totalSpent - totalPending;
-
-  if (parseFloat(amount) > available) {
-    return res.json({ success: false, message: 'Insufficient balance' });
-  }
   if (parseFloat(amount) < 200) {
     return res.json({ success: false, message: 'Minimum withdrawal is 200 USDT' });
   }
 
-  const { error } = await supabase.from('withdrawals').insert([{ user_id, amount, address, status: 'pending' }]);
-  if (error) return res.json({ success: false, message: error.message });
-
-  res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
-});
-
-
-app.get('/withdrawals/:user_id', async (req, res) => {
-  const { user_id } = req.params;
-  const { data, error } = await supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
-  if (error) return res.json({ success: false, message: error.message });
-  res.json({ success: true, withdrawals: data });
-});
-
-
-app.post('/withdraw', async (req, res) => {
-  const { user_id, amount, address } = req.body;
-  if (!user_id || !amount || !address) {
-    return res.json({ success: false, message: 'All fields are required' });
-  }
-  if (parseFloat(amount) < 200) {
-    return res.json({ success: false, message: 'Minimum withdrawal is 200 USDT' });
-  }
-
-  // Check available balance
   const { data: deposits }    = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
   const { data: exchanges }   = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
   const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed']);
@@ -300,6 +268,14 @@ app.post('/withdraw', async (req, res) => {
 
   console.log(`✅ Withdrawal submitted: ${amount} USDT for user ${user_id}`);
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
+});
+
+
+app.get('/withdrawals/:user_id', async (req, res) => {
+  const { user_id } = req.params;
+  const { data, error } = await supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
+  if (error) return res.json({ success: false, message: error.message });
+  res.json({ success: true, withdrawals: data });
 });
 
 
@@ -353,17 +329,9 @@ app.post('/verify-transaction', async (req, res) => {
 });
 
 
-app.get('/market-data', async (req, res) => {
-  try {
-    const response = await fetch(
-      'https://api.coingecko.com/api/v3/simple/price?ids=tether&vs_currencies=inr'
-    );
-    const data = await response.json();
-    const rate = data?.tether?.inr || 84.5;
-    res.json({ success: true, usdt_inr_rate: rate });
-  } catch (err) {
-    res.json({ success: true, usdt_inr_rate: 84.5 }); 
-  }
+// ── Returns USDT→INR rate strictly from .env ─────────────────
+app.get('/market-data', (req, res) => {
+  res.json({ success: true, usdt_inr_rate: USDT_INR_RATE });
 });
 
 app.get('/user/:user_id', async (req, res) => {
