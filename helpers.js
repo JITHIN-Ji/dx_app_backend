@@ -35,19 +35,29 @@ async function createNotification(user_id, type, title, message) {
 
 
 async function recalculateAndUpdateUserBalance(user_id) {
-  
-  const { data: deposits } = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
-  
-  const { data: exchanges } = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
-  
-  const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['confirmed', 'completed']);
 
-  const totalDeposited = (deposits    || []).reduce((s, d) => s + parseFloat(d.amount), 0);
+  const { data: deposits } = await supabase
+    .from('deposits').select('amount')
+    .eq('user_id', user_id).eq('status', 'confirmed');
+
+  // ✅ Include 'pending' so balance is deducted immediately when user submits exchange
+  const { data: exchanges } = await supabase
+    .from('exchanges').select('amount_from')
+    .eq('user_id', user_id).in('status', ['pending', 'completed']);
+
+  // ✅ Include 'pending' so balance is deducted immediately when user submits withdrawal
+  const { data: withdrawals } = await supabase
+    .from('withdrawals').select('amount')
+    .eq('user_id', user_id).in('status', ['pending', 'confirmed', 'completed']);
+
+  const totalDeposited = (deposits    || []).reduce((s, d) => s + parseFloat(d.amount),      0);
   const totalExchanged = (exchanges   || []).reduce((s, e) => s + parseFloat(e.amount_from), 0);
-  const totalWithdrawn = (withdrawals || []).reduce((s, w) => s + parseFloat(w.amount), 0);
-  const balance = parseFloat((totalDeposited - totalExchanged - totalWithdrawn).toFixed(6));
+  const totalWithdrawn = (withdrawals || []).reduce((s, w) => s + parseFloat(w.amount),      0);
+  const balance        = parseFloat((totalDeposited - totalExchanged - totalWithdrawn).toFixed(6));
 
   await supabase.from('users').update({ balance }).eq('id', user_id);
+
+  return balance;
 }
 
 module.exports = { generateReferralCode, getUniqueReferralCode, getAppConfig, createNotification, recalculateAndUpdateUserBalance };

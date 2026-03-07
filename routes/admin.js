@@ -3,7 +3,7 @@ const router   = express.Router();
 const multer   = require('multer');
 const supabase = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
-const { getAppConfig, createNotification } = require('../helpers');
+const { getAppConfig, createNotification, recalculateAndUpdateUserBalance } = require('../helpers');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -26,7 +26,6 @@ async function getAdminPassword() {
     }
   } catch { /* fall through */ }
 
-  // Fallback to .env
   return process.env.ADMIN_PASSWORD || 'admin@dinero2024';
 }
 
@@ -42,7 +41,7 @@ router.post('/login', async (req, res) => {
 });
 
 
-// ── Get admin password (decrypted, for dashboard display) ─────────────────────
+// ── Get admin password ────────────────────────────────────────────────────────
 router.get('/admin-password', async (req, res) => {
   try {
     const { data } = await supabase
@@ -63,7 +62,6 @@ router.get('/admin-password', async (req, res) => {
       } catch { /* fall through */ }
     }
 
-    // No DB row — return .env value
     res.json({
       success:  true,
       password: process.env.ADMIN_PASSWORD || 'admin@dinero2024',
@@ -83,7 +81,6 @@ router.post('/admin-password', async (req, res) => {
     return res.json({ success: false, message: 'New password must be at least 6 characters' });
   }
 
-  // Verify current password
   const adminPassword = await getAdminPassword();
   if (current_password !== adminPassword) {
     return res.json({ success: false, message: 'Current password is incorrect' });
@@ -101,7 +98,6 @@ router.post('/admin-password', async (req, res) => {
     updated_at: new Date().toISOString(),
   };
 
-  // Check if row already exists
   const { data: existing } = await supabase
     .from('admin_config')
     .select('id')
@@ -208,24 +204,28 @@ router.post('/update-status', async (req, res) => {
 
   const { data: record } = await supabase.from(table).select('*').eq('id', id).single();
   if (record) {
-    const { recalculateAndUpdateUserBalance } = require('../helpers');
     if (table === 'deposits' && status === 'confirmed') {
       await createNotification(record.user_id, 'deposit', '✅ Deposit Confirmed',
         `Your deposit of ${parseFloat(record.amount).toFixed(2)} USDT has been confirmed.`);
       await recalculateAndUpdateUserBalance(record.user_id);
+
     } else if (table === 'exchanges' && status === 'completed') {
       await createNotification(record.user_id, 'exchange', '💱 Exchange Completed',
         `Your exchange of ${parseFloat(record.amount_from).toFixed(4)} USDT → ₹${parseFloat(record.amount_to).toFixed(2)} INR is complete.`);
       await recalculateAndUpdateUserBalance(record.user_id);
+
     } else if (table === 'withdrawals' && (status === 'confirmed' || status === 'completed')) {
       await createNotification(record.user_id, 'withdrawal', '💸 Withdrawal Confirmed',
         `Your withdrawal of ${parseFloat(record.amount).toFixed(2)} USDT has been processed.`);
       await recalculateAndUpdateUserBalance(record.user_id);
+
     } else if (status === 'failed') {
       const typeLabel = table === 'deposits' ? 'Deposit' : table === 'exchanges' ? 'Exchange' : 'Withdrawal';
       const amt = parseFloat(record.amount || record.amount_from || 0).toFixed(2);
       await createNotification(record.user_id, table, `❌ ${typeLabel} Failed`,
         `Your ${typeLabel.toLowerCase()} of ${amt} USDT was unsuccessful. Please contact support.`);
+      // ✅ Credit back — failed records are excluded from calculation so balance is restored
+      await recalculateAndUpdateUserBalance(record.user_id);
     }
   }
 
@@ -234,7 +234,7 @@ router.post('/update-status', async (req, res) => {
 });
 
 
-
+// ── Save Transaction ID ───────────────────────────────────────────────────────
 router.post('/save-transaction-id', async (req, res) => {
   const { table, id, transaction_id } = req.body;
   const allowedTables = ['exchanges', 'withdrawals'];
@@ -405,17 +405,17 @@ async function exportData(type, res) {
         ];
       });
     } else {
-      headers = ['User ID', 'User Name', 'Phone', 'Amount (USDT)', 'Wallet Address',  'Status', 'Created At'];
+      headers = ['User ID', 'User Name', 'Phone', 'Amount (USDT)', 'Wallet Address', 'Status', 'Created At'];
       rows = (data || []).map(w => {
         const u = userMap[w.user_id] || {};
         return [
-          w.user_id     || '',
-          u.name        || '',
-          u.phone       || '',
-          w.amount      || '',
-          w.address     || '',
-          w.status      || '',
-          w.created_at  || '',
+          w.user_id    || '',
+          u.name       || '',
+          u.phone      || '',
+          w.amount     || '',
+          w.address    || '',
+          w.status     || '',
+          w.created_at || '',
         ];
       });
     }

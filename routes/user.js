@@ -39,9 +39,9 @@ router.get('/balances/:user_id', async (req, res) => {
     .from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
   const { data: exchanges,   error: exErr  } = await supabase
     .from('exchanges').select('amount_from, amount_to, from_currency, to_currency')
-    .eq('user_id', user_id).eq('status', 'completed');
+    .eq('user_id', user_id).in('status', ['pending', 'completed']);
   const { data: withdrawals, error: wdErr  } = await supabase
-    .from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['confirmed', 'completed']);
+    .from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed', 'completed'])
 
   if (depErr || exErr || wdErr) {
     return res.json({ success: false, message: 'Failed to fetch balances' });

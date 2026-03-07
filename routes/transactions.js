@@ -2,7 +2,7 @@ const express  = require('express');
 const router   = express.Router();
 const supabase = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
-const { getAppConfig, createNotification } = require('../helpers');
+const { getAppConfig, createNotification, recalculateAndUpdateUserBalance } = require('../helpers');
 
 const USDT_CONTRACT       = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const REFERRAL_COMMISSION = 0.0025; // 0.25%
@@ -17,6 +17,7 @@ router.post('/deposit', async (req, res) => {
     .from('deposits')
     .insert([{ user_id, tx_hash, amount, status, from_address, to_address }]);
   if (error) return res.json({ success: false, message: error.message });
+  await recalculateAndUpdateUserBalance(user_id);
   res.json({ success: true, message: 'Deposit saved.' });
 });
 
@@ -35,29 +36,26 @@ router.post('/exchange', async (req, res) => {
     .insert([{ user_id, from_currency, to_currency, amount_from, fee, amount_after_fee, amount_to, rate, status, account_number, account_name, ifsc_code }]);
 
   if (error) return res.json({ success: false, message: error.message });
+  await recalculateAndUpdateUserBalance(user_id);
 
-  
   const { data: referral } = await supabase
     .from('referrals').select('referred_by').eq('user_id', user_id).single();
 
   if (referral && referral.referred_by) {
     const bonusAmount = parseFloat((parseFloat(amount_after_fee) * REFERRAL_COMMISSION).toFixed(6));
 
-    // 1. Add to referrer's bonus_balance
     const { data: referrer } = await supabase
       .from('users').select('bonus_balance').eq('id', referral.referred_by).single();
     const currentBonus = parseFloat(referrer?.bonus_balance || 0);
     const newBonus     = parseFloat((currentBonus + bonusAmount).toFixed(6));
     await supabase.from('users').update({ bonus_balance: newBonus }).eq('id', referral.referred_by);
 
-    // 2. Accumulate in referrals table
     const { data: existingReferral } = await supabase
       .from('referrals').select('bonus_amount').eq('user_id', user_id).single();
     const currentReferralBonus = parseFloat(existingReferral?.bonus_amount || 0);
     const newReferralBonus     = parseFloat((currentReferralBonus + bonusAmount).toFixed(6));
     await supabase.from('referrals').update({ bonus_amount: newReferralBonus, bonus_paid: true }).eq('user_id', user_id);
 
-    // 3. Notify referrer
     await createNotification(
       referral.referred_by,
       'referral_bonus',
@@ -133,7 +131,7 @@ router.post('/withdraw', async (req, res) => {
   }
 
   const { data: deposits }    = await supabase.from('deposits').select('amount').eq('user_id', user_id).eq('status', 'confirmed');
-  const { data: exchanges }   = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).eq('status', 'completed');
+  const { data: exchanges }   = await supabase.from('exchanges').select('amount_from').eq('user_id', user_id).in('status', ['pending', 'completed']);
   const { data: withdrawals } = await supabase.from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed']);
 
   const totalDeposited = (deposits    || []).reduce((s, d) => s + parseFloat(d.amount), 0);
@@ -149,18 +147,18 @@ router.post('/withdraw', async (req, res) => {
     { user_id, amount, address, status: 'pending' }
   ]);
   if (error) return res.json({ success: false, message: error.message });
+  await recalculateAndUpdateUserBalance(user_id);
 
   await supabase.from('notifications').insert([{
     user_id,
-    type: 'withdrawal',
-    title: 'Withdrawal Submitted',
+    type:    'withdrawal',
+    title:   'Withdrawal Submitted',
     message: `Your withdrawal request for ${amount} USDT has been submitted and is pending review.`
   }]);
 
   console.log(`✅ Withdrawal submitted: ${amount} USDT for user ${user_id}`);
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
 });
-
 
 router.get('/withdrawals/:user_id', async (req, res) => {
   const { user_id } = req.params;
