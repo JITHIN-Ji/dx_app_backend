@@ -9,7 +9,7 @@ router.get('/user/:user_id', async (req, res) => {
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
   const { data, error } = await supabase
-    .from('users').select('id, name, phone, transaction_password').eq('id', user_id).single();
+    .from('users').select('id, name, email, transaction_password').eq('id', user_id).single();
   if (error || !data) return res.json({ success: false, message: 'User not found' });
   res.json({ success: true, user: data });
 });
@@ -20,7 +20,7 @@ router.get('/user-profile/:user_id', async (req, res) => {
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
   const { data, error } = await supabase
-    .from('users').select('id, name, phone, referral_code, bonus_balance').eq('id', user_id).single();
+    .from('users').select('id, name, email, referral_code, bonus_balance').eq('id', user_id).single();
   if (error || !data) return res.json({ success: false, message: 'User not found' });
 
   res.json({
@@ -41,7 +41,7 @@ router.get('/balances/:user_id', async (req, res) => {
     .from('exchanges').select('amount_from, amount_to, from_currency, to_currency')
     .eq('user_id', user_id).in('status', ['pending', 'completed']);
   const { data: withdrawals, error: wdErr  } = await supabase
-    .from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed', 'completed'])
+    .from('withdrawals').select('amount').eq('user_id', user_id).in('status', ['pending', 'confirmed', 'completed']);
 
   if (depErr || exErr || wdErr) {
     return res.json({ success: false, message: 'Failed to fetch balances' });
@@ -105,8 +105,6 @@ router.post('/bank-card', async (req, res) => {
   }
 
   try {
-    // Check if this account number already exists for user (compare encrypted values would be hard,
-    // so we fetch all cards for user and check decrypted values)
     const { data: existing } = await supabase
       .from('bank_cards').select('id, card_number').eq('user_id', user_id);
 
@@ -185,7 +183,6 @@ router.delete('/bank-card/:card_id', async (req, res) => {
 
   if (!card_id) return res.json({ success: false, message: 'Card ID required' });
 
-  // Verify ownership before deleting
   const { data: card, error: fetchErr } = await supabase
     .from('bank_cards').select('id, user_id').eq('id', card_id).single();
 

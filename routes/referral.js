@@ -75,4 +75,13 @@ router.post('/apply-referral', async (req, res) => {
   res.json({ success: true, message: 'Referral code applied!' });
 });
 
+
+router.get('/referral-info/:code', async (req, res) => {
+  const { data } = await supabase
+    .from('users').select('name')
+    .eq('referral_code', req.params.code.toUpperCase()).single();
+  if (!data) return res.json({ success: false });
+  res.json({ success: true, name: data.name });
+});
+
 module.exports = router;

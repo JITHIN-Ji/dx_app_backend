@@ -1,6 +1,7 @@
 const express  = require('express');
 const router   = express.Router();
 const multer   = require('multer');
+const ExcelJS  = require('exceljs');
 const supabase = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
 const { getAppConfig, createNotification, recalculateAndUpdateUserBalance } = require('../helpers');
@@ -11,7 +12,7 @@ const upload = multer({
 });
 
 
-// ── Helper: get current admin password (DB first, .env fallback) ──────────────
+// ── Helper: get current admin password ───────────────────────────────────────
 async function getAdminPassword() {
   try {
     const { data } = await supabase
@@ -120,7 +121,7 @@ router.post('/admin-password', async (req, res) => {
 router.get('/users', async (req, res) => {
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, phone, referral_code, bonus_balance, created_at')
+    .select('id, name, email, referral_code, bonus_balance, created_at')
     .order('created_at', { ascending: false });
   if (error) return res.json({ success: false, message: error.message });
   res.json({ success: true, users: data });
@@ -139,7 +140,7 @@ router.get('/user/:user_id', async (req, res) => {
     { data: referralRecord },
     { data: bankCardData },
   ] = await Promise.all([
-    supabase.from('users').select('id, name, phone, referral_code, bonus_balance, created_at').eq('id', user_id).single(),
+    supabase.from('users').select('id, name, email, referral_code, bonus_balance, created_at').eq('id', user_id).single(),
     supabase.from('deposits').select('*').eq('user_id', user_id).order('created_at', { ascending: false }),
     supabase.from('exchanges').select('*').eq('user_id', user_id).order('created_at', { ascending: false }),
     supabase.from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false }),
@@ -151,8 +152,9 @@ router.get('/user/:user_id', async (req, res) => {
 
   let referrerName = null;
   if (referralRecord && referralRecord.referred_by) {
-    const { data: referrer } = await supabase.from('users').select('name, phone').eq('id', referralRecord.referred_by).single();
-    referrerName = referrer ? referrer.name + ' (' + referrer.phone + ')' : 'Unknown';
+    const { data: referrer } = await supabase
+      .from('users').select('name, email').eq('id', referralRecord.referred_by).single();
+    referrerName = referrer ? referrer.name + ' (' + referrer.email + ')' : 'Unknown';
   }
 
   const { data: myReferrals } = await supabase
@@ -162,10 +164,15 @@ router.get('/user/:user_id', async (req, res) => {
   let referredUsers = [];
   if (myReferrals && myReferrals.length > 0) {
     const ids = myReferrals.map(r => r.user_id);
-    const { data: rUsers } = await supabase.from('users').select('id, name, phone').in('id', ids);
+    const { data: rUsers } = await supabase.from('users').select('id, name, email').in('id', ids);
     referredUsers = myReferrals.map(r => {
       const u = (rUsers || []).find(u => u.id === r.user_id);
-      return { name: u ? u.name : 'Unknown', phone: u ? u.phone : '', bonus_amount: r.bonus_amount, joined_at: r.created_at };
+      return {
+        name:         u ? u.name  : 'Unknown',
+        email:        u ? u.email : '',
+        bonus_amount: r.bonus_amount,
+        joined_at:    r.created_at,
+      };
     });
   }
 
@@ -224,7 +231,6 @@ router.post('/update-status', async (req, res) => {
       const amt = parseFloat(record.amount || record.amount_from || 0).toFixed(2);
       await createNotification(record.user_id, table, `❌ ${typeLabel} Failed`,
         `Your ${typeLabel.toLowerCase()} of ${amt} USDT was unsuccessful. Please contact support.`);
-      // ✅ Credit back — failed records are excluded from calculation so balance is restored
       await recalculateAndUpdateUserBalance(record.user_id);
     }
   }
@@ -352,14 +358,14 @@ router.post('/upload-qr', upload.single('qr'), async (req, res) => {
 });
 
 
-// ── Export ────────────────────────────────────────────────────────────────────
+// ── Export as Excel (.xlsx) ───────────────────────────────────────────────────
 async function exportData(type, res) {
   try {
     const { data: tracker } = await supabase
       .from('export_tracker').select('last_exported_at').eq('type', type).single();
 
     const cutoffTime = tracker?.last_exported_at || null;
-    const now = new Date().toISOString();
+    const now        = new Date().toISOString();
 
     console.log(`📤 Export ${type} — cutoff: ${cutoffTime}`);
 
@@ -375,60 +381,139 @@ async function exportData(type, res) {
       await supabase.from('export_tracker').update({ last_exported_at: now }).eq('type', type);
     }
 
+    // Fetch user info (name + email)
     const userIds = [...new Set((data || []).map(r => r.user_id).filter(Boolean))];
     const { data: users } = userIds.length > 0
-      ? await supabase.from('users').select('id, name, phone').in('id', userIds)
+      ? await supabase.from('users').select('id, name, email').in('id', userIds)
       : { data: [] };
 
     const userMap = {};
     (users || []).forEach(u => { userMap[u.id] = u; });
 
-    let headers, rows;
+    // ── Build workbook ──
+    const workbook  = new ExcelJS.Workbook();
+    workbook.creator = 'Dinero Stakes Admin';
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet(type.charAt(0).toUpperCase() + type.slice(1));
+
+    // Header style
+    const headerFill = {
+      type: 'pattern', pattern: 'solid',
+      fgColor: { argb: 'FF1A1208' },
+    };
+    const headerFont  = { bold: true, color: { argb: 'FFC9A84C' }, size: 11 };
+    const headerBorder = {
+      top:    { style: 'thin', color: { argb: 'FFC9A84C' } },
+      bottom: { style: 'thin', color: { argb: 'FFC9A84C' } },
+      left:   { style: 'thin', color: { argb: 'FFC9A84C' } },
+      right:  { style: 'thin', color: { argb: 'FFC9A84C' } },
+    };
+    const cellFont   = { color: { argb: 'FFF0E6CC' }, size: 10 };
+    const cellFill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF140E04' } };
+    const altCellFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1C1408' } };
 
     if (type === 'exchanges') {
-      headers = ['User ID', 'User Name', 'Phone', 'Amount (USDT)', 'INR Amount', 'Account Number', 'Account Name', 'IFSC Code', 'Rate', 'Fee', 'Status', 'Created At'];
-      rows = (data || []).map(e => {
+      sheet.columns = [
+        { header: 'User ID',         key: 'user_id',        width: 38 },
+        { header: 'User Name',       key: 'user_name',      width: 20 },
+        { header: 'Email',           key: 'email',          width: 30 },
+        { header: 'Amount (USDT)',   key: 'amount_from',    width: 16 },
+        { header: 'INR Amount',      key: 'amount_to',      width: 16 },
+        { header: 'Account Number',  key: 'account_number', width: 22 },
+        { header: 'Account Name',    key: 'account_name',   width: 22 },
+        { header: 'IFSC Code',       key: 'ifsc_code',      width: 14 },
+        { header: 'Rate',            key: 'rate',           width: 10 },
+        { header: 'Fee',             key: 'fee',            width: 10 },
+        { header: 'Status',          key: 'status',         width: 14 },
+        { header: 'Created At',      key: 'created_at',     width: 22 },
+      ];
+
+      (data || []).forEach((e, i) => {
         const u = userMap[e.user_id] || {};
-        return [
-          e.user_id     || '',
-          u.name        || '',
-          u.phone       || '',
-          e.amount_from || '',
-          e.amount_to   || '',
-          e.account_number ? (() => { try { return decrypt(e.account_number); } catch { return e.account_number; } })() : '',
-          e.account_name   ? (() => { try { return decrypt(e.account_name);   } catch { return e.account_name;   } })() : '',
-          e.ifsc_code   || '',
-          e.rate        || '',
-          e.fee         || 0,
-          e.status      || '',
-          e.created_at  || '',
-        ];
+        sheet.addRow({
+          user_id:        e.user_id      || '',
+          user_name:      u.name         || '',
+          email:          u.email        || '',
+          amount_from:    e.amount_from  || '',
+          amount_to:      e.amount_to    || '',
+          account_number: e.account_number ? (() => { try { return decrypt(e.account_number); } catch { return e.account_number; } })() : '',
+          account_name:   e.account_name   ? (() => { try { return decrypt(e.account_name);   } catch { return e.account_name;   } })() : '',
+          ifsc_code:      e.ifsc_code    || '',
+          rate:           e.rate         || '',
+          fee:            e.fee          || 0,
+          status:         e.status       || '',
+          created_at:     e.created_at   || '',
+        });
       });
+
     } else {
-      headers = ['User ID', 'User Name', 'Phone', 'Amount (USDT)', 'Wallet Address', 'Status', 'Created At'];
-      rows = (data || []).map(w => {
+      // withdrawals
+      sheet.columns = [
+        { header: 'User ID',        key: 'user_id',    width: 38 },
+        { header: 'User Name',      key: 'user_name',  width: 20 },
+        { header: 'Email',          key: 'email',      width: 30 },
+        { header: 'Amount (USDT)',  key: 'amount',     width: 16 },
+        { header: 'Wallet Address', key: 'address',    width: 40 },
+        { header: 'Status',         key: 'status',     width: 14 },
+        { header: 'Created At',     key: 'created_at', width: 22 },
+      ];
+
+      (data || []).forEach((w) => {
         const u = userMap[w.user_id] || {};
-        return [
-          w.user_id    || '',
-          u.name       || '',
-          u.phone      || '',
-          w.amount     || '',
-          w.address    || '',
-          w.status     || '',
-          w.created_at || '',
-        ];
+        sheet.addRow({
+          user_id:    w.user_id    || '',
+          user_name:  u.name       || '',
+          email:      u.email      || '',
+          amount:     w.amount     || '',
+          address:    w.address    || '',
+          status:     w.status     || '',
+          created_at: w.created_at || '',
+        });
       });
     }
 
-    const csv = [headers, ...rows]
-      .map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
-      .join('\n');
+    // Style header row
+    const headerRow = sheet.getRow(1);
+    headerRow.eachCell(cell => {
+      cell.fill   = headerFill;
+      cell.font   = headerFont;
+      cell.border = headerBorder;
+      cell.alignment = { vertical: 'middle', horizontal: 'center' };
+    });
+    headerRow.height = 24;
 
-    console.log(`📤 CSV rows: ${rows.length}`);
+    // Style data rows
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return;
+      row.eachCell(cell => {
+        cell.fill = rowNumber % 2 === 0 ? cellFill : altCellFill;
+        cell.font = cellFont;
+        cell.border = {
+          bottom: { style: 'hair', color: { argb: 'FF2a2010' } },
+        };
+        cell.alignment = { vertical: 'middle' };
+      });
+      row.height = 20;
+    });
 
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${type}_export.csv"`);
-    res.send('\uFEFF' + csv);
+    // Freeze header
+    sheet.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // Auto-filter
+    sheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to:   { row: 1, column: sheet.columns.length },
+    };
+
+    const fileName = `${type}_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    console.log(`📤 XLSX rows: ${(data || []).length}`);
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+    await workbook.xlsx.write(res);
+    res.end();
 
   } catch (err) {
     console.error('❌ Export error:', err.message);
