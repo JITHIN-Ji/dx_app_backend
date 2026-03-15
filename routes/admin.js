@@ -415,35 +415,25 @@ async function exportData(type, res) {
 
     if (type === 'exchanges') {
       sheet.columns = [
-        { header: 'User ID',         key: 'user_id',        width: 38 },
-        { header: 'User Name',       key: 'user_name',      width: 20 },
-        { header: 'Email',           key: 'email',          width: 30 },
-        { header: 'Amount (USDT)',   key: 'amount_from',    width: 16 },
-        { header: 'INR Amount',      key: 'amount_to',      width: 16 },
-        { header: 'Account Number',  key: 'account_number', width: 22 },
-        { header: 'Account Name',    key: 'account_name',   width: 22 },
-        { header: 'IFSC Code',       key: 'ifsc_code',      width: 14 },
-        { header: 'Rate',            key: 'rate',           width: 10 },
-        { header: 'Fee',             key: 'fee',            width: 10 },
-        { header: 'Status',          key: 'status',         width: 14 },
-        { header: 'Created At',      key: 'created_at',     width: 22 },
+        { header: 'Name',           key: 'user_name',      width: 20 },
+        { header: 'User ID',        key: 'user_id',        width: 38 },
+        { header: 'Email',          key: 'email',          width: 30 },
+        { header: 'Bank',           key: 'account_name',   width: 22 },
+        { header: 'Account No.',    key: 'account_number', width: 22 },
+        { header: 'IFSC Code',      key: 'ifsc_code',      width: 14 },
+        { header: 'Order Amt INR',  key: 'amount_to',      width: 16 },
       ];
 
-      (data || []).forEach((e, i) => {
+      (data || []).forEach((e) => {
         const u = userMap[e.user_id] || {};
         sheet.addRow({
-          user_id:        e.user_id      || '',
-          user_name:      u.name         || '',
-          email:          u.email        || '',
-          amount_from:    e.amount_from  || '',
-          amount_to:      e.amount_to    || '',
-          account_number: e.account_number ? (() => { try { return decrypt(e.account_number); } catch { return e.account_number; } })() : '',
+          user_name:      u.name  || '',
+          user_id:        e.user_id || '',
+          email:          u.email || '',
           account_name:   e.account_name   ? (() => { try { return decrypt(e.account_name);   } catch { return e.account_name;   } })() : '',
-          ifsc_code:      e.ifsc_code    || '',
-          rate:           e.rate         || '',
-          fee:            e.fee          || 0,
-          status:         e.status       || '',
-          created_at:     e.created_at   || '',
+          account_number: e.account_number ? (() => { try { return decrypt(e.account_number); } catch { return e.account_number; } })() : '',
+          ifsc_code:      e.ifsc_code  || '',
+          amount_to:      e.amount_to  || '',
         });
       });
 
@@ -455,20 +445,16 @@ async function exportData(type, res) {
         { header: 'Email',          key: 'email',      width: 30 },
         { header: 'Amount (USDT)',  key: 'amount',     width: 16 },
         { header: 'Wallet Address', key: 'address',    width: 40 },
-        { header: 'Status',         key: 'status',     width: 14 },
-        { header: 'Created At',     key: 'created_at', width: 22 },
       ];
 
       (data || []).forEach((w) => {
         const u = userMap[w.user_id] || {};
         sheet.addRow({
-          user_id:    w.user_id    || '',
-          user_name:  u.name       || '',
-          email:      u.email      || '',
-          amount:     w.amount     || '',
-          address:    w.address    || '',
-          status:     w.status     || '',
-          created_at: w.created_at || '',
+          user_id:   w.user_id || '',
+          user_name: u.name    || '',
+          email:     u.email   || '',
+          amount:    w.amount  || '',
+          address:   w.address || '',
         });
       });
     }
