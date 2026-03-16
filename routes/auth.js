@@ -1,22 +1,13 @@
 const express       = require('express');
 const router        = express.Router();
 const bcrypt        = require('bcryptjs');
-const nodemailer    = require('nodemailer');
+const { Resend }    = require('resend');
 const supabase      = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
 const { getUniqueReferralCode } = require('../helpers');
 
-// ── Gmail Transporter ─────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  family: 4,
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASS,
-  },
-});
+// ── Resend Client ─────────────────────────────────────────────────
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ── In-memory OTP store: { email -> { code, expiresAt } } ─────────
 const otpStore = new Map();
@@ -26,8 +17,8 @@ function generateOtp() {
 }
 
 async function sendOtpEmail(email, otp) {
-  await transporter.sendMail({
-    from:    `"Dinero Stakes" <${process.env.GMAIL_USER}>`,
+  await resend.emails.send({
+    from:    'Dinero Stakes <otp@wingoraventures.com>',
     to:      email,
     subject: 'Your Dinero Stakes OTP',
     text:    `Your OTP is: ${otp}. It expires in 10 minutes.`,
@@ -45,6 +36,7 @@ async function sendOtpEmail(email, otp) {
     `,
   });
 }
+
 
 
 // ── Send OTP (registration) ───────────────────────────────────────

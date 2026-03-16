@@ -442,7 +442,7 @@ async function exportData(type, res) {
       sheet.columns = [
         { header: 'User ID',        key: 'user_id',    width: 38 },
         { header: 'User Name',      key: 'user_name',  width: 20 },
-        { header: 'Email',          key: 'email',      width: 30 },
+       
         { header: 'Amount (USDT)',  key: 'amount',     width: 16 },
         { header: 'Wallet Address', key: 'address',    width: 40 },
       ];
@@ -452,7 +452,7 @@ async function exportData(type, res) {
         sheet.addRow({
           user_id:   w.user_id || '',
           user_name: u.name    || '',
-          email:     u.email   || '',
+          
           amount:    w.amount  || '',
           address:   w.address || '',
         });
