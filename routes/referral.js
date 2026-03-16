@@ -3,6 +3,8 @@ const router   = express.Router();
 const supabase = require('../supabase');
 
 
+// referral.js — ONLY this route changes
+
 router.get('/team/:user_id', async (req, res) => {
   const { user_id } = req.params;
   const { data: referrals, error } = await supabase
@@ -10,18 +12,27 @@ router.get('/team/:user_id', async (req, res) => {
     .eq('referred_by', user_id).order('created_at', { ascending: false });
 
   if (error) return res.json({ success: false, message: error.message });
-  if (!referrals || referrals.length === 0) return res.json({ success: true, members: [], total_bonus: 0 });
+  if (!referrals || referrals.length === 0)
+    return res.json({ success: true, members: [], total_bonus: 0 });
 
   const memberIds = referrals.map(r => r.user_id);
-  const { data: users } = await supabase
-    .from('users').select('id, name, phone, created_at').in('id', memberIds);
+
+  
+  const { data: users, error: userError } = await supabase
+    .from('users')
+    .select('id, name, email, created_at')
+    .in('id', memberIds);
+
+  if (userError) console.log('User fetch error:', userError.message);
+  console.log('memberIds:', memberIds);
+  console.log('users found:', users);
 
   const members = referrals.map(r => {
     const u = (users || []).find(u => u.id === r.user_id);
     return {
       user_id:      r.user_id,
       name:         u?.name  || 'Unknown',
-      phone:        u?.phone || '',
+      phone:        u?.email || '',   
       joined_at:    u?.created_at || r.created_at,
       bonus_amount: parseFloat(r.bonus_amount || 0),
       bonus_paid:   r.bonus_paid,
