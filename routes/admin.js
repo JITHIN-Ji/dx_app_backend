@@ -377,9 +377,7 @@ async function exportData(type, res) {
 
     if (error) return res.json({ success: false, message: error.message });
 
-    if (data && data.length > 0) {
-      await supabase.from('export_tracker').update({ last_exported_at: now }).eq('type', type);
-    }
+    await supabase.from('export_tracker').upsert({ type, last_exported_at: now }, { onConflict: 'type' });
 
     // Fetch user info (name + email)
     const userIds = [...new Set((data || []).map(r => r.user_id).filter(Boolean))];
