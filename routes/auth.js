@@ -5,7 +5,7 @@ const { Resend }    = require('resend');
 const supabase      = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
 const { getUniqueReferralCode } = require('../helpers');
-
+const resetOtpStore = new Map();
 // ── Resend Client ─────────────────────────────────────────────────
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -170,6 +170,101 @@ router.post('/login', async (req, res) => {
     message: 'Login successful',
     user: { id: user.id, name: user.name, email: user.email },
   });
+});
+
+router.post('/send-otp-reset', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.json({ success: false, message: 'Email address is required.' });
+ 
+  // User must exist
+  const { data: user } = await supabase
+    .from('users').select('id').eq('email', email).single();
+  if (!user) {
+    return res.json({ success: false, message: 'No account found with this email address.' });
+  }
+ 
+  try {
+    const otp       = generateOtp();                    // reuses your existing helper
+    const expiresAt = Date.now() + 10 * 60 * 1000;     // 10 minutes
+    resetOtpStore.set(email, { code: otp, expiresAt });
+ 
+    await sendOtpEmail(email, otp);                     // reuses your existing helper
+    console.log('✅ Reset OTP sent to:', email);
+    res.json({ success: true, message: 'OTP sent successfully.' });
+  } catch (err) {
+    console.error('❌ Send reset OTP error:', err.message);
+    res.json({ success: false, message: 'Failed to send OTP. Please try again.' });
+  }
+});
+ 
+ 
+
+router.post('/verify-otp-reset', async (req, res) => {
+  const { email, code } = req.body;
+  if (!email || !code) {
+    return res.json({ success: false, message: 'Email and OTP are required.' });
+  }
+ 
+  const record = resetOtpStore.get(email);
+  if (!record) {
+    return res.json({ success: false, message: 'OTP not found. Please request a new one.' });
+  }
+  if (Date.now() > record.expiresAt) {
+    resetOtpStore.delete(email);
+    return res.json({ success: false, message: 'OTP has expired. Please request a new one.' });
+  }
+  if (record.code !== code.trim()) {
+    return res.json({ success: false, message: 'Invalid OTP. Please try again.' });
+  }
+ 
+  // Mark as verified (keep entry so reset step can validate)
+  resetOtpStore.set(email, { ...record, verified: true });
+ 
+  console.log('✅ Reset OTP verified for:', email);
+  res.json({ success: true, message: 'OTP verified.' });
+});
+ 
+ 
+// ── Reset Password ────────────────────────────────────────────────
+// POST /reset-password
+// Body: { email, newPassword }
+router.post('/reset-password', async (req, res) => {
+  const { email, newPassword } = req.body;
+  if (!email || !newPassword) {
+    return res.json({ success: false, message: 'Email and new password are required.' });
+  }
+ 
+  // Must have a verified OTP session
+  const record = resetOtpStore.get(email);
+  if (!record || !record.verified) {
+    return res.json({ success: false, message: 'Please complete OTP verification first.' });
+  }
+  if (Date.now() > record.expiresAt) {
+    resetOtpStore.delete(email);
+    return res.json({ success: false, message: 'Session expired. Please start again.' });
+  }
+ 
+  try {
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const encrypted      = encrypt(hashedPassword);      // reuses your existing encrypt helper
+ 
+    const { error } = await supabase
+      .from('users')
+      .update({ password: encrypted })
+      .eq('email', email);
+ 
+    if (error) {
+      console.error('❌ Supabase update error:', error.message);
+      return res.json({ success: false, message: 'Failed to update password.' });
+    }
+ 
+    resetOtpStore.delete(email);   // clean up session
+    console.log('✅ Password reset successful for:', email);
+    res.json({ success: true, message: 'Password reset successfully.' });
+  } catch (err) {
+    console.error('❌ Reset password error:', err.message);
+    res.json({ success: false, message: err.message });
+  }
 });
 
 
