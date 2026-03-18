@@ -74,6 +74,22 @@ router.post('/verify-and-register', async (req, res) => {
     return res.json({ success: false, message: 'All fields are required' });
   }
 
+  // ── Referral code is mandatory ────────────────────────────────
+  if (!referralCode || !referralCode.trim()) {
+    return res.json({ success: false, message: 'Referral code is required to register.' });
+  }
+
+  // ── Validate referral code exists in DB ───────────────────────
+  const { data: referrerCheck } = await supabase
+    .from('users')
+    .select('id')
+    .eq('referral_code', referralCode.trim().toUpperCase())
+    .single();
+
+  if (!referrerCheck) {
+    return res.json({ success: false, message: 'Invalid referral code. Please enter a valid one.' });
+  }
+
   const { data: existingUser } = await supabase
     .from('users').select('id').eq('email', email).single();
   if (existingUser) {
@@ -113,17 +129,9 @@ router.post('/verify-and-register', async (req, res) => {
       return res.json({ success: false, message: 'Failed to register user.' });
     }
 
-    if (referralCode && referralCode.trim()) {
-      const { data: referrer } = await supabase
-        .from('users').select('id')
-        .eq('referral_code', referralCode.trim().toUpperCase()).single();
-      if (referrer) {
-        await supabase.from('referrals').insert([{ user_id: newUser.id, referred_by: referrer.id }]);
-        console.log(`✅ Referral recorded: ${newUser.id} referred by ${referrer.id}`);
-      } else {
-        console.log('⚠️ Referral code not found:', referralCode);
-      }
-    }
+    // referrerCheck is already validated above, use it directly
+    await supabase.from('referrals').insert([{ user_id: newUser.id, referred_by: referrerCheck.id }]);
+    console.log(`✅ Referral recorded: ${newUser.id} referred by ${referrerCheck.id}`);
 
     console.log('✅ New user registered:', name, email, '| Code:', newUserReferralCode);
     res.json({ success: true, message: 'Registration successful!' });
@@ -176,7 +184,6 @@ router.post('/send-otp-reset', async (req, res) => {
   const { email } = req.body;
   if (!email) return res.json({ success: false, message: 'Email address is required.' });
  
-  // User must exist
   const { data: user } = await supabase
     .from('users').select('id').eq('email', email).single();
   if (!user) {
@@ -184,11 +191,11 @@ router.post('/send-otp-reset', async (req, res) => {
   }
  
   try {
-    const otp       = generateOtp();                    // reuses your existing helper
-    const expiresAt = Date.now() + 10 * 60 * 1000;     // 10 minutes
+    const otp       = generateOtp();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
     resetOtpStore.set(email, { code: otp, expiresAt });
  
-    await sendOtpEmail(email, otp);                     // reuses your existing helper
+    await sendOtpEmail(email, otp);
     console.log('✅ Reset OTP sent to:', email);
     res.json({ success: true, message: 'OTP sent successfully.' });
   } catch (err) {
@@ -196,7 +203,6 @@ router.post('/send-otp-reset', async (req, res) => {
     res.json({ success: false, message: 'Failed to send OTP. Please try again.' });
   }
 });
- 
  
 
 router.post('/verify-otp-reset', async (req, res) => {
@@ -217,7 +223,6 @@ router.post('/verify-otp-reset', async (req, res) => {
     return res.json({ success: false, message: 'Invalid OTP. Please try again.' });
   }
  
-  // Mark as verified (keep entry so reset step can validate)
   resetOtpStore.set(email, { ...record, verified: true });
  
   console.log('✅ Reset OTP verified for:', email);
@@ -226,15 +231,12 @@ router.post('/verify-otp-reset', async (req, res) => {
  
  
 // ── Reset Password ────────────────────────────────────────────────
-// POST /reset-password
-// Body: { email, newPassword }
 router.post('/reset-password', async (req, res) => {
   const { email, newPassword } = req.body;
   if (!email || !newPassword) {
     return res.json({ success: false, message: 'Email and new password are required.' });
   }
  
-  // Must have a verified OTP session
   const record = resetOtpStore.get(email);
   if (!record || !record.verified) {
     return res.json({ success: false, message: 'Please complete OTP verification first.' });
@@ -246,7 +248,7 @@ router.post('/reset-password', async (req, res) => {
  
   try {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    const encrypted      = encrypt(hashedPassword);      // reuses your existing encrypt helper
+    const encrypted      = encrypt(hashedPassword);
  
     const { error } = await supabase
       .from('users')
@@ -258,7 +260,7 @@ router.post('/reset-password', async (req, res) => {
       return res.json({ success: false, message: 'Failed to update password.' });
     }
  
-    resetOtpStore.delete(email);   // clean up session
+    resetOtpStore.delete(email);
     console.log('✅ Password reset successful for:', email);
     res.json({ success: true, message: 'Password reset successfully.' });
   } catch (err) {
