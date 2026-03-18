@@ -18,7 +18,7 @@ function generateOtp() {
 
 async function sendOtpEmail(email, otp) {
   await resend.emails.send({
-    from:    'Dinero Stakes <otp@wingoraventures.com>',
+    from:    'Dinero Stakes <otp@dinerostakes.world>',
     to:      email,
     subject: 'Your Dinero Stakes OTP',
     text:    `Your OTP is: ${otp}. It expires in 10 minutes.`,
