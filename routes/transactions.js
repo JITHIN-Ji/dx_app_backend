@@ -18,6 +18,12 @@ router.post('/deposit', async (req, res) => {
     .insert([{ user_id, tx_hash, amount, status, from_address, to_address }]);
   if (error) return res.json({ success: false, message: error.message });
   await recalculateAndUpdateUserBalance(user_id);
+
+  if (status === 'confirmed') {
+    await createNotification(user_id, 'deposit', '✅ Deposit Confirmed',
+      `Your deposit of ${parseFloat(amount).toFixed(2)} USDT has been confirmed.`);
+  }
+
   res.json({ success: true, message: 'Deposit saved.' });
 });
 
