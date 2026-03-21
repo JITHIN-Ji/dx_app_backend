@@ -68,6 +68,17 @@ router.get('/bonus/:user_id', async (req, res) => {
   res.json({ success: true, bonus_balance: parseFloat(data.bonus_balance || 0) });
 });
 
+router.post('/save-push-token', async (req, res) => {
+  const { user_id, push_token } = req.body;
+  if (!user_id || !push_token) {
+    return res.json({ success: false, message: 'user_id and push_token required' });
+  }
+  const { error } = await supabase
+    .from('users').update({ push_token }).eq('id', user_id);
+  if (error) return res.json({ success: false, message: error.message });
+  res.json({ success: true });
+});
+
 
 router.get('/orders/:user_id', async (req, res) => {
   const { user_id } = req.params;

@@ -1,4 +1,5 @@
 const supabase = require('./supabase');
+const { sendPushNotification } = require('./pushService');
 
 
 function generateReferralCode() {
@@ -30,7 +31,32 @@ async function getAppConfig() {
 }
 
 async function createNotification(user_id, type, title, message) {
+  
   await supabase.from('notifications').insert([{ user_id, type, title, message }]);
+
+  
+  const { data: user } = await supabase
+    .from('users').select('push_token, name').eq('id', user_id).single();
+
+  if (user?.push_token) {
+    await sendPushNotification(user.push_token, title, message);
+  }
+
+ 
+  const adminUserId = process.env.ADMIN_USER_ID;
+  if (adminUserId && adminUserId !== user_id) {
+    const { data: admin } = await supabase
+      .from('users').select('push_token').eq('id', adminUserId).single();
+
+    if (admin?.push_token) {
+      const userName = user?.name || 'User';
+      await sendPushNotification(
+        admin.push_token,
+        `👤 ${userName} — ${title}`,
+        message
+      );
+    }
+  }
 }
 
 

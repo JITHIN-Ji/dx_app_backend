@@ -37,6 +37,8 @@ router.post('/exchange', async (req, res) => {
 
   if (error) return res.json({ success: false, message: error.message });
   await recalculateAndUpdateUserBalance(user_id);
+  await createNotification(user_id, 'exchange', '💱 Exchange Submitted',
+  `Your exchange of ${parseFloat(amount_from).toFixed(2)} USDT → ₹${parseFloat(amount_to).toFixed(2)} INR has been submitted.`);
 
   const { data: referral } = await supabase
     .from('referrals').select('referred_by').eq('user_id', user_id).single();
@@ -149,12 +151,8 @@ router.post('/withdraw', async (req, res) => {
   if (error) return res.json({ success: false, message: error.message });
   await recalculateAndUpdateUserBalance(user_id);
 
-  await supabase.from('notifications').insert([{
-    user_id,
-    type:    'withdrawal',
-    title:   'Withdrawal Submitted',
-    message: `Your withdrawal request for ${amount} USDT has been submitted and is pending review.`
-  }]);
+  await createNotification(user_id, 'withdrawal', '💸 Withdrawal Submitted',
+  `Your withdrawal request for ${parseFloat(amount).toFixed(2)} USDT is pending review.`);
 
   console.log(`✅ Withdrawal submitted: ${amount} USDT for user ${user_id}`);
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
