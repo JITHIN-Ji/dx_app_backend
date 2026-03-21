@@ -31,22 +31,27 @@ async function getAppConfig() {
 }
 
 async function createNotification(user_id, type, title, message) {
-  
+  console.log(`🔔 createNotification: ${title} → ${user_id}`);
+
   await supabase.from('notifications').insert([{ user_id, type, title, message }]);
 
-  
   const { data: user } = await supabase
     .from('users').select('push_token, name').eq('id', user_id).single();
+
+  console.log(`👤 User push_token: ${user?.push_token}`);
 
   if (user?.push_token) {
     await sendPushNotification(user.push_token, title, message);
   }
 
- 
   const adminUserId = process.env.ADMIN_USER_ID;
+  console.log(`👑 ADMIN_USER_ID from env: ${adminUserId}`);
+
   if (adminUserId && adminUserId !== user_id) {
     const { data: admin } = await supabase
       .from('users').select('push_token').eq('id', adminUserId).single();
+
+    console.log(`👑 Admin push_token: ${admin?.push_token}`);
 
     if (admin?.push_token) {
       const userName = user?.name || 'User';
@@ -66,12 +71,10 @@ async function recalculateAndUpdateUserBalance(user_id) {
     .from('deposits').select('amount')
     .eq('user_id', user_id).eq('status', 'confirmed');
 
-  // ✅ Include 'pending' so balance is deducted immediately when user submits exchange
   const { data: exchanges } = await supabase
     .from('exchanges').select('amount_from')
     .eq('user_id', user_id).in('status', ['pending', 'completed']);
 
-  // ✅ Include 'pending' so balance is deducted immediately when user submits withdrawal
   const { data: withdrawals } = await supabase
     .from('withdrawals').select('amount')
     .eq('user_id', user_id).in('status', ['pending', 'confirmed', 'completed']);

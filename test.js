@@ -3,7 +3,7 @@ const expo = new Expo();
 
 async function test() {
   const result = await expo.sendPushNotificationsAsync([{
-    to: 'ExponentPushToken[8Yh0VnLDygaSeLA0AoTNFm]',
+    to: 'ExponentPushToken[BR8cIBFwg1RtVvndTddo6Y]',
     sound: 'default',
     title: '🔔 Test Notification',
     body: 'Push notifications are working!',
