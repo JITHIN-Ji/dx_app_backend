@@ -2,9 +2,19 @@ const express  = require('express');
 const router   = express.Router();
 const supabase = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
+const authMiddleware = require('../middleware/auth');
+
+router.get('/app-version', (req, res) => {
+  res.json({
+    success:        true,
+    latest_version: '1.0.0',
+    download_url:   'https://dinero-beta.vercel.app/DineroStakes.apk',
+    update_message: 'A new version is available. Please download and install to continue using the app.'
+  });
+});
 
 
-router.get('/user/:user_id', async (req, res) => {
+router.get('/user/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
@@ -15,7 +25,8 @@ router.get('/user/:user_id', async (req, res) => {
 });
 
 
-router.get('/user-profile/:user_id', async (req, res) => {
+router.get('/user-profile/:user_id', authMiddleware, async (req, res) => {
+
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
@@ -31,7 +42,7 @@ router.get('/user-profile/:user_id', async (req, res) => {
 });
 
 
-router.get('/balances/:user_id', async (req, res) => {
+router.get('/balances/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
@@ -60,7 +71,7 @@ router.get('/balances/:user_id', async (req, res) => {
 });
 
 
-router.get('/bonus/:user_id', async (req, res) => {
+router.get('/bonus/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   const { data, error } = await supabase
     .from('users').select('bonus_balance').eq('id', user_id).single();
@@ -68,7 +79,7 @@ router.get('/bonus/:user_id', async (req, res) => {
   res.json({ success: true, bonus_balance: parseFloat(data.bonus_balance || 0) });
 });
 
-router.post('/save-push-token', async (req, res) => {
+router.post('/save-push-token', authMiddleware, async (req, res) => {
   const { user_id, push_token } = req.body;
   if (!user_id || !push_token) {
     return res.json({ success: false, message: 'user_id and push_token required' });
@@ -80,7 +91,7 @@ router.post('/save-push-token', async (req, res) => {
 });
 
 
-router.get('/orders/:user_id', async (req, res) => {
+router.get('/orders/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
@@ -109,7 +120,7 @@ router.get('/orders/:user_id', async (req, res) => {
 });
 
 
-router.post('/bank-card', async (req, res) => {
+router.post('/bank-card', authMiddleware, async (req, res) => {
   const { user_id, card_number, card_holder, bank_name, ifsc_code } = req.body;
   if (!user_id || !card_number || !card_holder || !bank_name) {
     return res.json({ success: false, message: 'All fields are required' });
@@ -145,7 +156,7 @@ router.post('/bank-card', async (req, res) => {
 });
 
 
-router.get('/bank-cards/:user_id', async (req, res) => {
+router.get('/bank-cards/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 
@@ -171,7 +182,7 @@ router.get('/bank-cards/:user_id', async (req, res) => {
 });
 
 
-router.get('/bank-card-by-id/:card_id', async (req, res) => {
+router.get('/bank-card-by-id/:card_id', authMiddleware, async (req, res) => {
   const { card_id } = req.params;
   if (!card_id) return res.json({ success: false, message: 'Card ID required' });
 
@@ -188,7 +199,7 @@ router.get('/bank-card-by-id/:card_id', async (req, res) => {
 });
 
 
-router.delete('/bank-card/:card_id', async (req, res) => {
+router.delete('/bank-card/:card_id', authMiddleware, async (req, res) => {
   const { card_id } = req.params;
   const { user_id } = req.body;
 
@@ -208,7 +219,7 @@ router.delete('/bank-card/:card_id', async (req, res) => {
 });
 
 
-router.get('/bank-card/:user_id', async (req, res) => {
+router.get('/bank-card/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   if (!user_id) return res.json({ success: false, message: 'User ID required' });
 

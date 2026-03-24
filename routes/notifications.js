@@ -1,9 +1,11 @@
 const express  = require('express');
 const router   = express.Router();
 const supabase = require('../supabase');
+const authMiddleware = require('../middleware/auth');
 
 
-router.get('/notifications/:user_id', async (req, res) => {
+router.get('/notifications/:user_id', authMiddleware, async (req, res) => {
+
   const { user_id } = req.params;
   const { data, error } = await supabase
     .from('notifications')
@@ -17,7 +19,7 @@ router.get('/notifications/:user_id', async (req, res) => {
 });
 
 
-router.post('/notifications/read-all/:user_id', async (req, res) => {
+router.post('/notifications/read-all/:user_id', authMiddleware, async (req, res) =>  {
   const { user_id } = req.params;
   const { error } = await supabase
     .from('notifications')
@@ -29,7 +31,7 @@ router.post('/notifications/read-all/:user_id', async (req, res) => {
 });
 
 
-router.post('/notifications/read/:notif_id', async (req, res) => {
+router.post('/notifications/read/:notif_id', authMiddleware, async (req, res) => {
   const { notif_id } = req.params;
   const { error } = await supabase
     .from('notifications')

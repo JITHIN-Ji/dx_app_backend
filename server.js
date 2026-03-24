@@ -2,7 +2,9 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
+const cors    = require('cors');
 const app     = express();
+app.set('trust proxy', 1); 
 
 const { getAppConfig } = require('./helpers');
 const { decrypt }      = require('./encryption');
@@ -15,6 +17,12 @@ const notificationRoutes = require('./routes/notifications');
 const adminRoutes        = require('./routes/admin');
 
 app.use(express.json());
+app.use(cors({
+  origin: [
+    'https://dinero-beta.vercel.app',
+    'https://dxappbackend-production.up.railway.app',
+  ],
+}));
 
 app.get('/', (req, res) => {
   res.json({ success: true, message: '✅ DX_APP Server is running!' });

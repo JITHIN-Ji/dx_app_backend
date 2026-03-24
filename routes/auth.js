@@ -6,10 +6,23 @@ const supabase      = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
 const { getUniqueReferralCode } = require('../helpers');
 const resetOtpStore = new Map();
-// ── Resend Client ─────────────────────────────────────────────────
-const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ── In-memory OTP store: { email -> { code, expiresAt } } ─────────
+const resend = new Resend(process.env.RESEND_API_KEY);
+const jwt       = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many attempts. Try again in 15 minutes.' }
+});
+
+const otpLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 3,
+  message: { success: false, message: 'Too many OTP requests. Try again in 1 minute.' }
+});
+
 const otpStore = new Map();
 
 function generateOtp() {
@@ -39,8 +52,7 @@ async function sendOtpEmail(email, otp) {
 
 
 
-// ── Send OTP (registration) ───────────────────────────────────────
-router.post('/send-otp', async (req, res) => {
+router.post('/send-otp', otpLimiter, async (req, res) => {
   const { email } = req.body;
   console.log('📧 Send OTP request for:', email);
   if (!email) return res.json({ success: false, message: 'Email address is required' });
@@ -142,8 +154,9 @@ router.post('/verify-and-register', async (req, res) => {
 });
 
 
+
 // ── Login ─────────────────────────────────────────────────────────
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
   console.log('🔐 Login request for:', email);
   if (!email || !password) {
@@ -172,15 +185,23 @@ router.post('/login', async (req, res) => {
     return res.json({ success: false, message: 'Incorrect password' });
   }
 
+  
+  const token = jwt.sign(
+    { user_id: user.id },
+    process.env.JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+
   console.log('✅ Login successful for:', email);
   res.json({
     success: true,
     message: 'Login successful',
+    token,  
     user: { id: user.id, name: user.name, email: user.email },
   });
 });
 
-router.post('/send-otp-reset', async (req, res) => {
+router.post('/send-otp-reset', otpLimiter, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.json({ success: false, message: 'Email address is required.' });
  
@@ -307,7 +328,7 @@ router.post('/set-transaction-password', async (req, res) => {
 
 
 // ── Send OTP to existing user ─────────────────────────────────────
-router.post('/send-otp-existing', async (req, res) => {
+router.post('/send-otp-existing', otpLimiter, async (req, res) => {
   const { email } = req.body;
   console.log('📧 Send OTP (existing user) request for:', email);
   if (!email) return res.json({ success: false, message: 'Email address is required' });

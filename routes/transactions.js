@@ -3,12 +3,14 @@ const router   = express.Router();
 const supabase = require('../supabase');
 const { encrypt, decrypt } = require('../encryption');
 const { getAppConfig, createNotification, recalculateAndUpdateUserBalance } = require('../helpers');
+const authMiddleware = require('../middleware/auth');
 
 const USDT_CONTRACT       = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const REFERRAL_COMMISSION = 0.0025; // 0.25%
 
 
-router.post('/deposit', async (req, res) => {
+router.post('/deposit', authMiddleware, async (req, res) => {
+
   const { user_id, tx_hash, amount, status, from_address, to_address } = req.body;
   if (!user_id || !tx_hash || !amount || !status) {
     return res.json({ success: false, message: 'All fields are required' });
@@ -28,7 +30,8 @@ router.post('/deposit', async (req, res) => {
 });
 
 
-router.post('/exchange', async (req, res) => {
+router.post('/exchange', authMiddleware, async (req, res) => {
+
   let { user_id, from_currency, to_currency, amount_from, fee, amount_after_fee, amount_to, rate, status, account_number, account_name, ifsc_code } = req.body;
   if (!user_id || !from_currency || !to_currency || !amount_from || !amount_to || !status) {
     return res.json({ success: false, message: 'All fields are required' });
@@ -128,7 +131,8 @@ router.post('/verify-transaction', async (req, res) => {
 
 
 
-router.post('/withdraw', async (req, res) => {
+router.post('/withdraw', authMiddleware, async (req, res) => {
+
   const { user_id, amount, address } = req.body;
 
   if (!user_id || !amount || !address) {
@@ -164,7 +168,8 @@ router.post('/withdraw', async (req, res) => {
   res.json({ success: true, message: 'Withdrawal request submitted successfully!' });
 });
 
-router.get('/withdrawals/:user_id', async (req, res) => {
+router.get('/withdrawals/:user_id', authMiddleware, async (req, res) => {
+
   const { user_id } = req.params;
   const { data, error } = await supabase
     .from('withdrawals').select('*').eq('user_id', user_id).order('created_at', { ascending: false });
@@ -183,7 +188,7 @@ router.get('/withdrawals/:user_id', async (req, res) => {
 });
 
 
-router.post('/withdraw-bonus', async (req, res) => {
+router.post('/withdraw-bonus', authMiddleware, async (req, res) => {
   const { user_id, amount } = req.body;
   if (!user_id || !amount) return res.json({ success: false, message: 'All fields required' });
 

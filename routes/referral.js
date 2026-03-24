@@ -1,11 +1,11 @@
 const express  = require('express');
 const router   = express.Router();
 const supabase = require('../supabase');
-
+const authMiddleware = require('../middleware/auth');
 
 // referral.js — ONLY this route changes
 
-router.get('/team/:user_id', async (req, res) => {
+router.get('/team/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   const { data: referrals, error } = await supabase
     .from('referrals').select('user_id, bonus_amount, bonus_paid, created_at')
@@ -44,14 +44,14 @@ router.get('/team/:user_id', async (req, res) => {
 });
 
 
-router.get('/check-referral/:user_id', async (req, res) => {
+router.get('/check-referral/:user_id', authMiddleware, async (req, res) => {
   const { user_id } = req.params;
   const { data } = await supabase.from('referrals').select('id').eq('user_id', user_id).single();
   res.json({ success: true, has_referral: !!data });
 });
 
 
-router.post('/validate-referral-code', async (req, res) => {
+router.post('/validate-referral-code', authMiddleware, async (req, res) => {
   const { code, user_id } = req.body;
   if (!code) return res.json({ valid: false });
 
@@ -67,7 +67,7 @@ router.post('/validate-referral-code', async (req, res) => {
 });
 
 
-router.post('/apply-referral', async (req, res) => {
+router.post('/apply-referral', authMiddleware, async (req, res) => {
   const { user_id, code } = req.body;
   if (!user_id || !code) return res.json({ success: false, message: 'All fields required' });
 
