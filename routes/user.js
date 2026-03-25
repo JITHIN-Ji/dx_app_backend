@@ -7,7 +7,7 @@ const authMiddleware = require('../middleware/auth');
 router.get('/app-version', (req, res) => {
   res.json({
     success:        true,
-    latest_version: '1.0.1',
+    latest_version: '1.0.2',
     download_url:   'https://dinero-beta.vercel.app/DineroStakes.apk',
     update_message: 'A new version is available. Please download and install to continue using the app.'
   });
